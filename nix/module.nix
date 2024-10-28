@@ -77,6 +77,7 @@ in {
       documentation = [ "https://git.lly.sh/ftsell/nm-file-secret-agent" ];
       requires = [ "NetworkManager.service" ];
       after = [ "NetworkManager.service" ];
+      wantedBy = ["multi-user.target"];
       restartTriggers = [ configFile ];
       script = "${lib.getExe cfg.package} --conf ${configFile}";
     };
