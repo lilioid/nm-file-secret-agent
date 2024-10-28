@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use anyhow::Context;
 use clap::{ArgAction, Parser};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::prelude::*;
@@ -29,10 +30,11 @@ struct Cli {
     pub quiet: u8,
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     init_logger(&cli);
-    let config = mapping::MappingConfig::from_file(&cli.config);
+    let config = mapping::MappingConfig::from_file(&cli.config)?;
+    config.validate().context("Config validation failed")?;
     dbus_server::run(config);
 }
 

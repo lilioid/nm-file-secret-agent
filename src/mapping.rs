@@ -1,6 +1,8 @@
 use std::{fs::File, io::Read, path::Path};
 
+use anyhow::{Context, Result};
 use serde::Deserialize;
+use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
 pub struct MappingConfig {
@@ -20,16 +22,38 @@ pub struct MappingEntry {
 }
 
 impl MappingConfig {
-    pub fn from_file(path: &Path) -> Self {
+    /// Read a mapping configuration from the file located at `path`
+    pub fn from_file(path: &Path) -> anyhow::Result<Self> {
         let mut buf = String::new();
         File::options()
             .read(true)
             .open(path)
-            .expect("Could not open config file")
+            .context("Could not open config file")?
             .read_to_string(&mut buf)
-            .expect("Could not read file content");
+            .context("Could not read file content")?;
         let config: Self = toml::from_str(&buf).expect("Could not parse config file");
-        config
+        Ok(config)
+    }
+
+    /// Validate that all configured secrets can be read and warn about possibly invalid match settings
+    pub fn validate(&self) -> anyhow::Result<()> {
+        for (i, entry) in self.entries.iter().enumerate() {
+            // try to open the file
+            File::options()
+                .read(true)
+                .open(&entry.file)
+                .with_context(|| {
+                    format!("Could not open file backing secret at {}", &entry.file)
+                })?;
+
+            // emit warning if match_uuid does not look like a uuid
+            if let Some(match_uuid) = &entry.match_uuid {
+                if let Err(e) = Uuid::parse_str(&match_uuid) {
+                    tracing::warn!("match_uuid value {match_uuid} of config entry {i} is not a valid uuid and will prevent the entry from matching anything");
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn get_secrets(
