@@ -56,10 +56,7 @@ fn init_logger(args: &Cli) {
 
     // configure appropriate level filter
     // tokio is very spammy on higher log levels which is usually not interesting so we filter it out
-    let filter = tracing_subscriber::filter::Targets::new()
-        .with_default(log_level)
-        .with_target("tokio", Ord::min(LevelFilter::WARN, log_level))
-        .with_target("runtime", Ord::min(LevelFilter::WARN, log_level));
+    let filter = tracing_subscriber::filter::Targets::new().with_default(log_level);
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().without_time())
         .with(filter)
