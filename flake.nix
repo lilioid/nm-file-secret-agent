@@ -10,7 +10,7 @@
     pkgs = import nixpkgs { system = "x86_64-linux"; };
     lib = nixpkgs.outputs.lib;
     cargoToml = (builtins.fromTOML (builtins.readFile ./Cargo.toml));
-  in {
+  in rec {
     packages.x86_64-linux.nm-file-secret-agent = pkgs.rustPlatform.buildRustPackage {
       name = cargoToml.package.name;
       version = cargoToml.package.version;
@@ -19,7 +19,15 @@
       LD_LIBRARY_PATH = with pkgs; lib.makeLibraryPath [ dbus ];
       PKG_CONFIG_PATH = with pkgs; lib.makeSearchPathOutput "dev" "lib/pkgconfig" [ dbus ];
       nativeBuildInputs = with pkgs; [ pkg-config ];
+      meta = {
+        description = cargoToml.package.description;
+        mainProgram = cargoToml.package.name;
+        homepage = cargoToml.package.homepage;
+        license = lib.licenses.mit;
+      };
     };
+
+    nixosModules.default = import nix/module.nix packages;
 
     devShells.x86_64-linux.default = pkgs.mkShell {
       LD_LIBRARY_PATH = with pkgs; lib.makeLibraryPath [ dbus ];
