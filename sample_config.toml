@@ -1,0 +1,5 @@
+[[entry]]
+match_type = "wireguard"
+match_id = "wgVpn"
+key = "private-key"
+file = "./privkey"
