@@ -38,7 +38,7 @@ enum GetSecretsFlags {
 
 pub type NestedSettingsMap = HashMap<String, PropMap>;
 
-pub fn run(mapping: MappingConfig) {
+pub fn run(mapping: MappingConfig) -> ! {
     let mut cross = Crossroads::new();
 
     let iface_token = cross.register("org.freedesktop.NetworkManager.SecretAgent", |b| {
@@ -171,29 +171,42 @@ fn get_secret(
         panic!("NetworkManager requested a WPA action to be performed which is not supported by this agent");
     }
 
-    // read secret entries and encode them into a result object
+    // fetch matching secret entries
     let secrets = mapping.get_secrets(conn_id, conn_uuid, conn_type, iface_name, &setting_name);
-    let mut result = NestedSettingsMap::new();
-    result.insert(setting_name.clone(), HashMap::new());
-    for (key, secret_value) in secrets {
-        result
-            .get_mut(&setting_name)
-            .unwrap()
-            .insert(key, Variant(Box::new(secret_value)));
-    }
 
-    // warn if NetworkManager hinted at values that are not provided
-    for hint in hints.iter() {
-        if result[&setting_name]
-            .keys()
-            .find(|&key| key == hint)
-            .is_none()
-        {
-            tracing::warn!("Call from NetworkManager hinted at required key {setting_name}.{hint} and while nm-file-secret-agent has secret entries configured in the {setting_name} section, the key {hint} is missing");
+    if !secrets.is_empty() {
+        // encode a result dataset
+        let mut result = NestedSettingsMap::new();
+        result.insert(setting_name.clone(), HashMap::new());
+        for (key, secret_value) in secrets.iter() {
+            result
+                .get_mut(&setting_name)
+                .unwrap()
+                .insert(key.to_owned(), Variant(Box::new(secret_value.to_owned())));
         }
-    }
 
-    tracing::trace!("{result:#?}");
-    result
-    //NestedSettingsMap::default()
+        // warn if NetworkManager hinted at values that are not provided
+        for hint in hints.iter() {
+            if result[&setting_name]
+                .keys()
+                .find(|&key| key == hint)
+                .is_none()
+            {
+                tracing::warn!("Call from NetworkManager hinted at required key {setting_name}.{hint} and while nm-file-secret-agent has secret entries configured in the {setting_name} section, the key {hint} is missing");
+            }
+        }
+
+        let matched_names = secrets
+            .iter()
+            .map(|(key, _)| format!("{}.{}", &setting_name, &key))
+            .collect::<Vec<_>>()
+            .join(", ");
+        tracing::info!("returning secrets values for {matched_names}");
+        result
+    } else {
+        tracing::info!(
+            "no entries were configured that match the request so no secrets are returned"
+        );
+        NestedSettingsMap::default()
+    }
 }
