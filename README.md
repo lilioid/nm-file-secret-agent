@@ -12,3 +12,65 @@ NetworkManager, however, provides a mechanism for storing secrets inside an agen
 Using such an agent, secrets can be provided at runtime by an external program.
 
 So in summary, my setup provides a connection secret (e.g. a WireGuard private-key) at `/run/secrets/wg_privkey`, the NetworkManager connection profile is configured to read the private-key from secret agents, and the here implemented program bridges the two by providing the files content at runtime.
+
+## CLI Usage
+
+The provided command line interface is very small and can be queried by calling `nm-file-secret-agent --help`
+
+```
+Usage: nm-file-secret-agent [OPTIONS] --conf <CONFIG>
+
+Options:
+  -c, --conf <CONFIG>
+          Path to a config file
+
+  -v, --verbose...
+          Increase program verbosity
+
+          The default verbosity level is INFO.
+
+  -q, --quiet...
+          Decrease program verbosity
+
+          The default verbosity level is INFO.
+```
+
+
+## Configuration Reference
+
+The configuration file must be in TOML format.
+It describes a list of entries such as the listing below.
+
+In general, each entry consists of multiple `match_` keys, determining which requests for secrets this agent responds to.
+Each match is optional and can be omitted but if multiple are specified, all of them mus match in order for an entry to be considered for a request.
+The `key` and `file` then determine *how* the request is answered.
+`key` configures the key in the setting section for which this entry describes a value while `file` should be the path to a file from which the secret is read.
+
+```toml
+[[entry]]
+match_id = "<network manager connection id (displayed as name in GUIs)>"
+match_uuid = "<network manager connection uuid>"
+match_type = "<network manager connection type>"
+match_iface = "<interface name of the network manager connection>"
+match_setting = "<name of the setting section for which secrets are requested>"
+key = "<key in the setting section for which entry provides a value>"
+file = "<file from which the secret value is read>"
+```
+
+### Example
+
+Suppose, the following configuration file is used:
+
+```toml
+[[entry]]
+match_type = "wireguard"
+match_setting = "wireguard"
+key = "private-key"
+file = "/run/secrets/wg_privkey"
+```
+
+After *nm-file-secret-agent* is started, it will only respond to secret requests that
+- have a `connection.type` value equal to `wireguard`
+- and which are querying for secrets in the `wireguard` settings
+
+If such a matching request is encountered, it is answered by providing the `wireguard.private-key` setting with a value taken from the file `/run/secrets/wg_privkey`.
