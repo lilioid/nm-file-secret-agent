@@ -31,7 +31,8 @@ impl MappingConfig {
             .context("Could not open config file")?
             .read_to_string(&mut buf)
             .context("Could not read file content")?;
-        let config: Self = toml::from_str(&buf).expect("Could not parse config file");
+        let config: Self = toml::from_str(&buf)
+            .context("Could not parse config file as required TOML data-structure")?;
         Ok(config)
     }
 
@@ -48,7 +49,7 @@ impl MappingConfig {
 
             // emit warning if match_uuid does not look like a uuid
             if let Some(match_uuid) = &entry.match_uuid {
-                if let Err(e) = Uuid::parse_str(&match_uuid) {
+                if let Err(_) = Uuid::parse_str(&match_uuid) {
                     tracing::warn!("match_uuid value {match_uuid} of config entry {i} is not a valid uuid and will prevent the entry from matching anything");
                 }
             }
@@ -63,7 +64,7 @@ impl MappingConfig {
         conn_type: &str,
         iface_name: &str,
         setting_name: &str,
-    ) -> Vec<(String, String)> {
+    ) -> anyhow::Result<Vec<(String, String)>> {
         self.entries
             .iter()
             .filter(|entry| {
@@ -112,13 +113,15 @@ impl MappingConfig {
                 File::options()
                     .read(true)
                     .open(&entry.file)
-                    .expect("Could not open secret file")
+                    .with_context(|| format!("Could not open secret file at {}", &entry.file))?
                     .read_to_string(&mut secret_value)
-                    .expect("Could not read file content to string");
+                    .with_context(|| {
+                        format!("Could not read file content from secret at {}", &entry.file)
+                    })?;
                 tracing::debug!("Successfully read secret from file {}", &entry.file);
 
-                (entry.key.to_owned(), secret_value)
+                Ok((entry.key.to_owned(), secret_value))
             })
-            .collect()
+            .collect::<Result<Vec<_>>>()
     }
 }

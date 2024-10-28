@@ -5,6 +5,7 @@ use clap::{ArgAction, Parser};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::prelude::*;
 
+#[allow(unused)]
 mod agent_manager;
 mod dbus_server;
 mod mapping;
@@ -35,7 +36,7 @@ fn main() -> anyhow::Result<()> {
     init_logger(&cli);
     let config = mapping::MappingConfig::from_file(&cli.config)?;
     config.validate().context("Config validation failed")?;
-    dbus_server::run(config);
+    dbus_server::run(config)
 }
 
 fn init_logger(args: &Cli) {

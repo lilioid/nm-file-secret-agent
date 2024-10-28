@@ -1,11 +1,12 @@
 use std::{collections::HashMap, time::Duration};
 
+use anyhow::Context;
 use dbus::{
-    arg::{Dict, PropMap, RefArg, Variant},
+    arg::{PropMap, RefArg, Variant},
     blocking::{Connection, Proxy},
-    Path,
+    MethodErr, Path,
 };
-use dbus_crossroads::{Context, Crossroads};
+use dbus_crossroads::{Context as DbusContext, Crossroads};
 
 use crate::{agent_manager::OrgFreedesktopNetworkManagerAgentManager, mapping::MappingConfig};
 
@@ -25,12 +26,15 @@ enum SecretAgentCapabilities {
 #[repr(u32)]
 enum GetSecretsFlags {
     /// No special behavior; by default no user interaction is allowed and requests for secrets are fulfilled from persistent storage, or if no secrets are available an error is returned.
+    #[allow(dead_code)]
     None = 0x0,
     /// allows the request to interact with the user, possibly prompting via UI for secrets if any are required, or if none are found in persistent storage.
+    #[allow(dead_code)]
     AllowInteraction = 0x1,
     /// explicitly prompt for new secrets from the user. This flag signals that NetworkManager thinks any existing secrets are invalid or wrong. This flag implies that interaction is allowed.
     RequestNew = 0x2,
     /// set if the request was initiated by user-requested action via the D-Bus interface, as opposed to automatically initiated by NetworkManager in response to (for example) scan results or carrier changes.
+    #[allow(dead_code)]
     UserRequested = 0x4,
     /// indicates that WPS enrollment is active with PBC method. The agent may suggest that the user pushes a button on the router instead of supplying a PSK.
     WbsPbcActive = 0x8,
@@ -38,7 +42,7 @@ enum GetSecretsFlags {
 
 pub type NestedSettingsMap = HashMap<String, PropMap>;
 
-pub fn run(mapping: MappingConfig) -> ! {
+pub fn run(mapping: MappingConfig) -> anyhow::Result<()> {
     let mut cross = Crossroads::new();
 
     let iface_token = cross.register("org.freedesktop.NetworkManager.SecretAgent", |b| {
@@ -53,10 +57,16 @@ pub fn run(mapping: MappingConfig) -> ! {
                 "flags",
             ),
             ("secrets",),
-            move |_ctx: &mut Context,
+            move |_ctx: &mut DbusContext,
                   obj: &mut MappingConfig,
                   args: (NestedSettingsMap, Path, String, Vec<String>, u32)| {
-                Ok((get_secret(obj, args),))
+                match get_secret(obj, args) {
+                    Ok(secrets) => Ok((secrets,)),
+                    Err(e) => {
+                        tracing::error!(error = %e, "Could not execute getSecrets()");
+                        Err(MethodErr::failed(&e))
+                    }
+                }
             },
         );
 
@@ -65,7 +75,7 @@ pub fn run(mapping: MappingConfig) -> ! {
             "CancelGetSecrets",
             ("connection_path", "setting_name"),
             (),
-            move |_ctx: &mut Context,
+            move |_ctx: &mut DbusContext,
                   _obj: &mut MappingConfig,
                   (connection_path, setting_name): (Path, String)| {
                 tracing::debug!(%connection_path, setting_name, "got CancelGetSecrets() call");
@@ -78,7 +88,7 @@ pub fn run(mapping: MappingConfig) -> ! {
             "SaveSecrets",
             ("connection", "connection_path"),
             (),
-            move |_ctx: &mut Context,
+            move |_ctx: &mut DbusContext,
                   _obj: &mut MappingConfig,
                   (_connection, connection_path): (NestedSettingsMap, Path)| {
                 tracing::debug!(%connection_path, "got SaveSecrets() call");
@@ -91,7 +101,7 @@ pub fn run(mapping: MappingConfig) -> ! {
             "DeleteSecrets",
             ("connection", "connection_path"),
             (),
-            move |_ctx: &mut Context,
+            move |_ctx: &mut DbusContext,
                   _obj: &mut MappingConfig,
                   (_connection, connection_path): (NestedSettingsMap, Path)| {
                 tracing::debug!(%connection_path, "got DeleteSecrets() call");
@@ -107,7 +117,7 @@ pub fn run(mapping: MappingConfig) -> ! {
     );
 
     tracing::debug!("Connecting to system bus");
-    let conn = Connection::new_system().expect("Could not connect to the system D-Bus daemon");
+    let conn = Connection::new_system().context("Could not connect to the system D-Bus daemon")?;
     tracing::debug!("Connected to bus as {}", conn.unique_name());
 
     let network_manager = conn.with_proxy(
@@ -115,18 +125,20 @@ pub fn run(mapping: MappingConfig) -> ! {
         "/org/freedesktop/NetworkManager/AgentManager",
         Duration::from_secs(1),
     );
-    register_agent(&network_manager);
+    register_agent(&network_manager)?;
 
-    tracing::info!("Serving secret service on system bus");
-    cross.serve(&conn).expect("Could not run D-Bus service");
+    tracing::info!("Registered with NetworkManager; now serving D-Bus API");
+    cross.serve(&conn).context("Could not run D-Bus service")?;
+
     unreachable!();
 }
 
-fn register_agent(proxy: &Proxy<&Connection>) {
+fn register_agent(proxy: &Proxy<&Connection>) -> anyhow::Result<()> {
     tracing::debug!("Registering secret agent with NetworkManager");
     proxy
         .register_with_capabilities("nm-file-secret-agent", SecretAgentCapabilities::None as u32)
-        .expect("Could not register as secret agent with NetworkManager");
+        .context("Could not register as secret agent with NetworkManager")?;
+    Ok(())
 }
 
 fn get_secret(
@@ -138,19 +150,19 @@ fn get_secret(
         Vec<String>,
         u32,
     ),
-) -> NestedSettingsMap {
+) -> anyhow::Result<NestedSettingsMap> {
     let conn_id = &connection["connection"]["id"]
         .as_str()
-        .expect("Connection property is not a string");
+        .context("Connection property connection.id is not a string")?;
     let conn_uuid = connection["connection"]["uuid"]
         .as_str()
-        .expect("Connection property is not a string");
+        .context("Connection property connection.uuid is not a string")?;
     let conn_type = connection["connection"]["type"]
         .as_str()
-        .expect("Connection property is not a string");
+        .context("Connection property connection.type is not a string")?;
     let iface_name = connection["connection"]["interface-name"]
         .as_str()
-        .expect("Connection property is not a string");
+        .context("Connection property connection.interface-name is not a string")?;
 
     tracing::info!(
         connectionId = conn_id,
@@ -172,7 +184,9 @@ fn get_secret(
     }
 
     // fetch matching secret entries
-    let secrets = mapping.get_secrets(conn_id, conn_uuid, conn_type, iface_name, &setting_name);
+    let secrets = mapping
+        .get_secrets(conn_id, conn_uuid, conn_type, iface_name, &setting_name)
+        .context("Could not fetch secrets")?;
 
     if !secrets.is_empty() {
         // encode a result dataset
@@ -202,11 +216,11 @@ fn get_secret(
             .collect::<Vec<_>>()
             .join(", ");
         tracing::info!("returning secrets values for {matched_names}");
-        result
+        Ok(result)
     } else {
         tracing::info!(
             "no entries were configured that match the request so no secrets are returned"
         );
-        NestedSettingsMap::default()
+        Ok(NestedSettingsMap::default())
     }
 }
