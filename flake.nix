@@ -32,7 +32,7 @@
     devShells.x86_64-linux.default = pkgs.mkShell {
       LD_LIBRARY_PATH = with pkgs; lib.makeLibraryPath [ dbus ];
       PKG_CONFIG_PATH = with pkgs; lib.makeSearchPathOutput "dev" "lib/pkgconfig" [ dbus ];
-      packages = with pkgs; [ cargo pkg-config ];
+      packages = with pkgs; [ cargo rustfmt pkg-config pre-commit ];
     };
   };
 }
