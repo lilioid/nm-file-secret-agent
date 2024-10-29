@@ -1,13 +1,14 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, ops::Deref, time::Duration};
 
 use anyhow::Context;
 use dbus::{
     arg::{PropMap, RefArg, Variant},
-    blocking::{Connection, Proxy},
+    blocking::Connection,
     MethodErr, Path,
 };
 use dbus_crossroads::{Context as DbusContext, Crossroads};
 
+use crate::dbus_bus_manager::OrgFreedesktopDBus;
 use crate::{agent_manager::OrgFreedesktopNetworkManagerAgentManager, mapping::MappingConfig};
 
 /// Indication of agent capabilities
@@ -42,6 +43,12 @@ enum GetSecretsFlags {
 
 pub type NestedSettingsMap = HashMap<String, PropMap>;
 
+#[derive(Debug)]
+struct Server {
+    known_nm_names: Vec<String>,
+    mapping: MappingConfig,
+}
+
 pub fn run(mapping: MappingConfig) -> anyhow::Result<()> {
     let mut cross = Crossroads::new();
 
@@ -57,10 +64,12 @@ pub fn run(mapping: MappingConfig) -> anyhow::Result<()> {
                 "flags",
             ),
             ("secrets",),
-            move |_ctx: &mut DbusContext,
-                  obj: &mut MappingConfig,
+            move |ctx: &mut DbusContext,
+                  obj: &mut Server,
                   args: (NestedSettingsMap, Path, String, Vec<String>, u32)| {
-                match get_secret(obj, args) {
+                tracing::debug!("got getSecrets() call");
+                verify_access(ctx, &obj.known_nm_names)?;
+                match get_secret(&mut obj.mapping, args) {
                     Ok(secrets) => Ok((secrets,)),
                     Err(e) => {
                         tracing::error!(error = %e, "Could not execute getSecrets()");
@@ -76,7 +85,7 @@ pub fn run(mapping: MappingConfig) -> anyhow::Result<()> {
             ("connection_path", "setting_name"),
             (),
             move |_ctx: &mut DbusContext,
-                  _obj: &mut MappingConfig,
+                  _obj: &mut Server,
                   (connection_path, setting_name): (Path, String)| {
                 tracing::debug!(%connection_path, setting_name, "got CancelGetSecrets() call");
                 Ok(())
@@ -89,7 +98,7 @@ pub fn run(mapping: MappingConfig) -> anyhow::Result<()> {
             ("connection", "connection_path"),
             (),
             move |_ctx: &mut DbusContext,
-                  _obj: &mut MappingConfig,
+                  _obj: &mut Server,
                   (_connection, connection_path): (NestedSettingsMap, Path)| {
                 tracing::debug!(%connection_path, "got SaveSecrets() call");
                 Ok(())
@@ -102,7 +111,7 @@ pub fn run(mapping: MappingConfig) -> anyhow::Result<()> {
             ("connection", "connection_path"),
             (),
             move |_ctx: &mut DbusContext,
-                  _obj: &mut MappingConfig,
+                  _obj: &mut Server,
                   (_connection, connection_path): (NestedSettingsMap, Path)| {
                 tracing::debug!(%connection_path, "got DeleteSecrets() call");
                 Ok(())
@@ -110,22 +119,21 @@ pub fn run(mapping: MappingConfig) -> anyhow::Result<()> {
         );
     });
 
-    cross.insert(
-        "/org/freedesktop/NetworkManager/SecretAgent",
-        &[iface_token],
-        mapping,
-    );
-
     tracing::debug!("Connecting to system bus");
     let conn = Connection::new_system().context("Could not connect to the system D-Bus daemon")?;
     tracing::debug!("Connected to bus as {}", conn.unique_name());
 
-    let network_manager = conn.with_proxy(
-        "org.freedesktop.NetworkManager",
-        "/org/freedesktop/NetworkManager/AgentManager",
-        Duration::from_secs(1),
+    let known_nm_names = get_nm_names(&conn)?;
+    register_agent(&conn)?;
+
+    cross.insert(
+        "/org/freedesktop/NetworkManager/SecretAgent",
+        &[iface_token],
+        Server {
+            known_nm_names,
+            mapping,
+        },
     );
-    register_agent(&network_manager)?;
 
     tracing::info!("Registered with NetworkManager; now serving D-Bus API");
     cross.serve(&conn).context("Could not run D-Bus service")?;
@@ -133,12 +141,34 @@ pub fn run(mapping: MappingConfig) -> anyhow::Result<()> {
     unreachable!();
 }
 
-fn register_agent(proxy: &Proxy<&Connection>) -> anyhow::Result<()> {
+fn register_agent(conn: &Connection) -> anyhow::Result<()> {
     tracing::debug!("Registering secret agent with NetworkManager");
+    let proxy = conn.with_proxy(
+        "org.freedesktop.NetworkManager",
+        "/org/freedesktop/NetworkManager/AgentManager",
+        Duration::from_secs(1),
+    );
     proxy
         .register_with_capabilities("nm-file-secret-agent", SecretAgentCapabilities::None as u32)
         .context("Could not register as secret agent with NetworkManager")?;
     Ok(())
+}
+
+fn get_nm_names(conn: &Connection) -> anyhow::Result<Vec<String>> {
+    tracing::debug!(
+        "Querying DBus bus manager for all names that NetworkManager operates on the bus"
+    );
+    let proxy = conn.with_proxy(
+        "org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        Duration::from_secs(5),
+    );
+    let name = "org.freedesktop.NetworkManager".to_string();
+    let name_owner = proxy
+        .get_name_owner(&name)
+        .context("Could not query owner of name org.freedesktop.NetworkManager")?;
+
+    Ok(vec![name_owner, name])
 }
 
 fn get_secret(
@@ -172,7 +202,7 @@ fn get_secret(
         settingName = setting_name,
         ?hints,
         ?flags,
-        "Received getSecrets() call from NetworkManager"
+        "Resolving secret request with configured mapping"
     );
 
     // abort on unsupported flags
@@ -222,5 +252,24 @@ fn get_secret(
             "no entries were configured that match the request so no secrets are returned"
         );
         Ok(NestedSettingsMap::default())
+    }
+}
+
+/// Verify that NetworkManager was the one who called
+fn verify_access(ctx: &mut DbusContext, known_nm_names: &Vec<String>) -> Result<(), MethodErr> {
+    tracing::debug!("Verifying that it was NetworkManager that called us");
+    let sender = ctx.message().sender();
+    match sender {
+        None => {
+            tracing::debug!("Denying method access for sender without a bus name");
+            Err(MethodErr::failed("Access Denied"))
+        }
+        Some(sender) => match known_nm_names.iter().any(|i| i.as_str() == sender.deref()) {
+            true => Ok(()),
+            false => {
+                tracing::debug!("Denying method access for sender that is not NetworkManager");
+                Err(MethodErr::failed("Access Denied"))
+            }
+        },
     }
 }

@@ -7,6 +7,8 @@ use tracing_subscriber::prelude::*;
 
 #[allow(unused)]
 mod agent_manager;
+#[allow(unused)]
+mod dbus_bus_manager;
 mod dbus_server;
 mod mapping;
 
