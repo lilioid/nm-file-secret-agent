@@ -191,9 +191,16 @@ fn get_secret(
     let conn_type = connection["connection"]["type"]
         .as_str()
         .context("Connection property connection.type is not a string")?;
-    let iface_name = connection["connection"]["interface-name"]
-        .as_str()
-        .context("Connection property connection.interface-name is not a string")?;
+    // The interface name is not always present. If it is present, it should be a string.
+    let iface_name = if let Some(iface) = connection["connection"].get("interface-name") {
+        Some(
+            iface
+                .as_str()
+                .context("Connection property connection.interface-name is not a string")?,
+        )
+    } else {
+        None
+    };
 
     tracing::info!(
         connectionId = conn_id,
