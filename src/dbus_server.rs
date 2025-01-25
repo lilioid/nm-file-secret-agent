@@ -38,6 +38,7 @@ enum GetSecretsFlags {
     #[allow(dead_code)]
     UserRequested = 0x4,
     /// indicates that WPS enrollment is active with PBC method. The agent may suggest that the user pushes a button on the router instead of supplying a PSK.
+    #[allow(dead_code)]
     WbsPbcActive = 0x8,
 }
 
@@ -208,9 +209,6 @@ fn get_secret(
     // abort on unsupported flags
     if (flags & GetSecretsFlags::RequestNew as u32) == GetSecretsFlags::RequestNew as u32 {
         panic!("NetworkManager requested new credentials which cannot be provided by this agent");
-    }
-    if (flags & GetSecretsFlags::WbsPbcActive as u32) == GetSecretsFlags::WbsPbcActive as u32 {
-        panic!("NetworkManager requested a WPA action to be performed which is not supported by this agent");
     }
 
     // fetch matching secret entries
