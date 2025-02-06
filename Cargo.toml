@@ -1,7 +1,7 @@
 [package]
 name = "nm-file-secret-agent"
 description = "NetworkManager secret agent that responds with the content of preconfigured files"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 authors = [ "Lilly Sell <li@lly.sh>" ]
 homepage = "https://git.lly.sh/ftsell/nm-file-secret-agent"
