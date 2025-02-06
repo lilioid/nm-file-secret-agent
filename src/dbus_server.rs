@@ -215,7 +215,9 @@ fn get_secret(
 
     // abort on unsupported flags
     if (flags & GetSecretsFlags::RequestNew as u32) == GetSecretsFlags::RequestNew as u32 {
-        panic!("NetworkManager requested new credentials which cannot be provided by this agent");
+        return Err(anyhow::anyhow!(
+            "NetworkManager requested new credentials which cannot be provided by this agent"
+        ));
     }
 
     // fetch matching secret entries
