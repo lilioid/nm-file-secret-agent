@@ -62,7 +62,7 @@ impl MappingConfig {
         conn_id: &str,
         conn_uuid: &str,
         conn_type: &str,
-        iface_name: &str,
+        iface_name: Option<&str>,
         setting_name: &str,
     ) -> anyhow::Result<Vec<(String, String)>> {
         self.entries
@@ -88,12 +88,14 @@ impl MappingConfig {
                     return false;
                 }
 
-                if entry
-                    .match_iface
-                    .as_ref()
-                    .is_some_and(|val| val != iface_name)
-                {
-                    return false;
+                if let Some(iface_name) = iface_name {
+                    if entry
+                        .match_iface
+                        .as_ref()
+                        .is_some_and(|val| val != iface_name)
+                    {
+                        return false;
+                    }
                 }
 
                 if entry

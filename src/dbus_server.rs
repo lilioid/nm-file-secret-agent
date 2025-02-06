@@ -38,6 +38,7 @@ enum GetSecretsFlags {
     #[allow(dead_code)]
     UserRequested = 0x4,
     /// indicates that WPS enrollment is active with PBC method. The agent may suggest that the user pushes a button on the router instead of supplying a PSK.
+    #[allow(dead_code)]
     WbsPbcActive = 0x8,
 }
 
@@ -190,9 +191,16 @@ fn get_secret(
     let conn_type = connection["connection"]["type"]
         .as_str()
         .context("Connection property connection.type is not a string")?;
-    let iface_name = connection["connection"]["interface-name"]
-        .as_str()
-        .context("Connection property connection.interface-name is not a string")?;
+    // The interface name is not always present. If it is present, it should be a string.
+    let iface_name = if let Some(iface) = connection["connection"].get("interface-name") {
+        Some(
+            iface
+                .as_str()
+                .context("Connection property connection.interface-name is not a string")?,
+        )
+    } else {
+        None
+    };
 
     tracing::info!(
         connectionId = conn_id,
@@ -208,9 +216,6 @@ fn get_secret(
     // abort on unsupported flags
     if (flags & GetSecretsFlags::RequestNew as u32) == GetSecretsFlags::RequestNew as u32 {
         panic!("NetworkManager requested new credentials which cannot be provided by this agent");
-    }
-    if (flags & GetSecretsFlags::WbsPbcActive as u32) == GetSecretsFlags::WbsPbcActive as u32 {
-        panic!("NetworkManager requested a WPA action to be performed which is not supported by this agent");
     }
 
     // fetch matching secret entries
