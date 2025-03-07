@@ -109,7 +109,7 @@ impl MappingConfig {
                 return true;
             })
             .map(|entry| {
-                tracing::debug!(?entry, "Found matching secret entry");
+                tracing::info!(?entry, "Found matching secret entry");
 
                 let mut secret_value = String::new();
                 File::options()
