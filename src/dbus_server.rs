@@ -1,4 +1,8 @@
-use std::{collections::HashMap, ops::Deref, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::Deref,
+    time::Duration,
+};
 
 use anyhow::Context;
 use dbus::{
@@ -227,19 +231,22 @@ fn get_secret(
 
     if !secrets.is_empty() {
         // encode a result dataset
+        let (settings, inserted_keys) = match setting_name.as_ref() {
+            "wireguard" => build_wireguard_secrets(&secrets),
+            _ => build_generic_secrets(&secrets),
+        };
+
         let mut result = NestedSettingsMap::new();
-        result.insert(setting_name.clone(), HashMap::new());
-        for (key, secret_value) in secrets.iter() {
-            result
-                .get_mut(&setting_name)
-                .unwrap()
-                .insert(key.to_owned(), Variant(Box::new(secret_value.to_owned())));
-        }
+        result.insert(setting_name.clone(), settings);
 
         // warn if NetworkManager hinted at values that are not provided
         for hint in hints.iter() {
-            if !result[&setting_name].keys().any(|key| key == hint) {
-                tracing::warn!("Call from NetworkManager hinted at required key {setting_name}.{hint} and while nm-file-secret-agent has secret entries configured in the {setting_name} section, the key {hint} is missing");
+            if !inserted_keys.contains(hint) {
+                tracing::warn!(
+                    "Call from NetworkManager hinted at required key {setting_name}.{hint} and \
+                    while nm-file-secret-agent has secret entries configured in the \
+                    {setting_name} section, the key {hint} is missing"
+                );
             }
         }
 
@@ -274,5 +281,101 @@ fn verify_access(ctx: &mut DbusContext, known_nm_names: &[String]) -> Result<(),
                 Err(MethodErr::failed("Access Denied"))
             }
         },
+    }
+}
+
+fn build_generic_secrets(secrets: &[(String, String)]) -> (PropMap, HashSet<String>) {
+    let map = secrets
+        .iter()
+        .map(|(k, v)| (k.to_owned(), Variant(v.box_clone())))
+        .collect::<PropMap>();
+
+    let keys = map.keys().map(ToOwned::to_owned).collect();
+    (map, keys)
+}
+
+fn build_wireguard_secrets(secrets: &[(String, String)]) -> (PropMap, HashSet<String>) {
+    let mut props = PropMap::new();
+    let mut inserted_keys = HashSet::new();
+    let mut peers = HashMap::<String, HashMap<String, String>>::new();
+
+    for (key, value) in secrets.iter() {
+        let keyparts: Vec<&str> = key.split(".").collect();
+
+        match keyparts[..] {
+            ["peers", pubkey, subkey] => {
+                // Either retrieve the already-existing peer property map, or create a new one and
+                // return that
+                let peer = match peers.get_mut(pubkey) {
+                    Some(p) => p,
+                    None => {
+                        peers.insert(pubkey.to_owned(), HashMap::new());
+                        peers.get_mut(pubkey).expect("just inserted settings map")
+                    }
+                };
+
+                peer.insert(subkey.to_owned(), value.to_owned());
+            }
+            _ => {
+                // The simple case, a top-level key
+                props.insert(key.to_owned(), Variant(value.box_clone()));
+            }
+        }
+
+        inserted_keys.insert(key.to_owned());
+    }
+
+    // For peer-specific WireGuard secrets, D-Bus actually expects
+    // a list of hashmaps, i.e. in D-Bus speak: array of
+    // Dict<String, Variant>, aka `aa{sv}`. The `public-key` property
+    // _must_ be set, so that NetworkManager can identify the correct peer.
+    //
+    // See also nm_setting_wireguard_class_init() in
+    // NetworkManager/src/libnm-core-impl/nm-setting-wireguard.c
+    //
+    // We use a sane structure above and convert it here to D-Bus weirdness,
+    // for simplicity.
+    if !peers.is_empty() {
+        let peerlist = peers
+            .iter()
+            .map(|(pubkey, values)| {
+                let mut propmap = values
+                    .iter()
+                    .map(|(k, v)| (k.to_owned(), Variant(v.box_clone())))
+                    .collect::<PropMap>();
+                propmap.insert("public-key".to_owned(), Variant(pubkey.box_clone()));
+                propmap
+            })
+            .collect::<Vec<PropMap>>();
+
+        props.insert("peers".to_owned(), Variant(peerlist.box_clone()));
+    }
+
+    (props, inserted_keys)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_wireguard_secrets;
+    use dbus::arg::RefArg;
+
+    #[test]
+    /// See also for more information:
+    /// https://codeberg.org/lilly/nm-file-secret-agent/issues/1#issuecomment-2939232
+    fn build_wireguard_secret_with_preshared_key() {
+        let (secrets, inserted_keys) = build_wireguard_secrets(&[
+            ("private-key".into(), "PRIV_KEY_FOO".into()),
+            (
+                "peers.PUB_KEY_BAR.preshared-key".into(),
+                "PRESHARED_KEY_FOO_BAR".into(),
+            ),
+        ]);
+
+        assert!(secrets.contains_key("private-key"));
+        assert!(secrets.contains_key("peers"));
+        assert_eq!(secrets.signature(), "a{sv}".into());
+
+        assert!(inserted_keys.contains("private-key"));
+        assert!(inserted_keys.contains("peers.PUB_KEY_BAR.preshared-key"));
     }
 }
