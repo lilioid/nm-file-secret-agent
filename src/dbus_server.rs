@@ -238,11 +238,7 @@ fn get_secret(
 
         // warn if NetworkManager hinted at values that are not provided
         for hint in hints.iter() {
-            if result[&setting_name]
-                .keys()
-                .find(|&key| key == hint)
-                .is_none()
-            {
+            if !result[&setting_name].keys().any(|key| key == hint) {
                 tracing::warn!("Call from NetworkManager hinted at required key {setting_name}.{hint} and while nm-file-secret-agent has secret entries configured in the {setting_name} section, the key {hint} is missing");
             }
         }
@@ -263,7 +259,7 @@ fn get_secret(
 }
 
 /// Verify that NetworkManager was the one who called
-fn verify_access(ctx: &mut DbusContext, known_nm_names: &Vec<String>) -> Result<(), MethodErr> {
+fn verify_access(ctx: &mut DbusContext, known_nm_names: &[String]) -> Result<(), MethodErr> {
     tracing::debug!("Verifying that it was NetworkManager that called us");
     let sender = ctx.message().sender();
     match sender {

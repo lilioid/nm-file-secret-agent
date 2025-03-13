@@ -49,7 +49,7 @@ impl MappingConfig {
 
             // emit warning if match_uuid does not look like a uuid
             if let Some(match_uuid) = &entry.match_uuid {
-                if let Err(_) = Uuid::parse_str(&match_uuid) {
+                if Uuid::parse_str(match_uuid).is_err() {
                     tracing::warn!("match_uuid value {match_uuid} of config entry {i} is not a valid uuid and will prevent the entry from matching anything");
                 }
             }
@@ -106,7 +106,7 @@ impl MappingConfig {
                     return false;
                 }
 
-                return true;
+                true
             })
             .map(|entry| {
                 tracing::info!(?entry, "Found matching secret entry");
