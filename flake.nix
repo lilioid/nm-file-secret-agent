@@ -37,6 +37,7 @@
       PKG_CONFIG_PATH = with pkgs; lib.makeSearchPathOutput "dev" "lib/pkgconfig" [ dbus ];
       packages = with pkgs; [
         cargo
+        clippy
         rustfmt
         rust-analyzer
         pkg-config

@@ -5,9 +5,9 @@ use clap::{ArgAction, Parser};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::prelude::*;
 
-#[allow(unused)]
+#[allow(unused, clippy::all)]
 mod agent_manager;
-#[allow(unused)]
+#[allow(unused, clippy::all)]
 mod dbus_bus_manager;
 mod dbus_server;
 mod mapping;

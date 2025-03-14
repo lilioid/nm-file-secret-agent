@@ -74,3 +74,24 @@ After *nm-file-secret-agent* is started, it will only respond to secret requests
 - and which are querying for secrets in the `wireguard` settings
 
 If such a matching request is encountered, it is answered by providing the `wireguard.private-key` setting with a value taken from the file `/run/secrets/wg_privkey`.
+
+#### WireGuard `preshared-key`
+
+Sometimes, NetworkManager internally stores connection information different than specified in the `.nmconnection` file.
+
+Given the following (compacted) NetworkManager WireGuard connection configuration:
+
+```
+[wireguard-peer.<some-public-key>]
+preshared-key-flags=1
+```
+
+Then, in the configuration file, this must be specified as:
+
+```toml
+[[entry]]
+match_type = "wireguard"
+match_setting = "wireguard"
+key = "peers.<some-public-key>.preshared-key"
+file = "/run/secrets/wg_psk"
+```
