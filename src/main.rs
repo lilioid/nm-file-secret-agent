@@ -1,4 +1,4 @@
-//! NetworkManager secret agent that responds with the content of preconfigured files
+#![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 use anyhow::Context;
 use clap::{ArgAction, Parser};
@@ -12,9 +12,9 @@ mod dbus;
 mod generated;
 mod mapping;
 
-/// Small NetworkManager secret agent that responds with the content of preconfigured files
+/// CLI Flags
 #[derive(Parser, Debug, Eq, PartialEq, Hash)]
-#[command(version, about, long_about = None)]
+#[command(version, about = "Small NetworkManager secret agent that responds with the content of preconfigured files", long_about = None)]
 struct Cli {
     /// Path to a config file
     #[arg(short = 'c', long = "conf")]
