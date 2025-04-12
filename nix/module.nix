@@ -74,7 +74,7 @@ in {
   config = lib.mkIf cfg.enable {
     systemd.services."nm-file-secret-agent" = {
       description = "NetworkManager secret agent that responds with the content of preconfigured files";
-      documentation = [ "https://git.lly.sh/ftsell/nm-file-secret-agent" ];
+      documentation = [ "https://codeberg.org/lilly/nm-file-secret-agent" ];
       requires = [ "NetworkManager.service" ];
       after = [ "NetworkManager.service" ];
       wantedBy = ["multi-user.target"];
