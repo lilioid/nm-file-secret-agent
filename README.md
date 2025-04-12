@@ -3,6 +3,8 @@
 A small program that can provide secrets based on configured files contents to NetworkManager.
 This allows protected values to be stored outside of the `/etc/NetworkManager/system-connections` files while still configuring the connection itself there.
 
+- [Source Code & Documentation](https://codeberg.org/lilly/nm-file-secret-agent)
+
 ## Use-Case
 
 This program was designed to allow configuration of NetworkManager connections with NixOS that rely on secrets.
