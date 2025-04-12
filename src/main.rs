@@ -1,12 +1,13 @@
 //! NetworkManager secret agent that responds with the content of preconfigured files
-use std::path::PathBuf;
-
+#![warn(missing_docs)]
 use anyhow::Context;
 use clap::{ArgAction, Parser};
+use std::path::PathBuf;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::prelude::*;
 
-mod dbus_server;
+mod config;
+mod dbus;
 #[allow(unused, clippy::all)]
 mod generated;
 mod mapping;
@@ -35,9 +36,10 @@ struct Cli {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     init_logger(&cli);
-    let config = mapping::MappingConfig::from_file(&cli.config)?;
+
+    let config = config::AgentConfig::from_file(&cli.config)?;
     config.validate().context("Config validation failed")?;
-    dbus_server::run(config)
+    dbus::run(config)
 }
 
 fn init_logger(args: &Cli) {
