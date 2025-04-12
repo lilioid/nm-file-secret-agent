@@ -221,6 +221,30 @@ mod tests {
     use dbus::arg::RefArg;
 
     #[test]
+    fn encode_generic_secret() {
+        let (secrets, inserted_keys) = encode_generic_secrets(&[
+            Secret {
+                key: "psk".into(),
+                value: "FOO_BAR".into(),
+            },
+            Secret {
+                key: "secret2".into(),
+                value: "FOO_BAR2".into(),
+            },
+        ]);
+
+        assert_eq!(secrets.signature(), "a{sv}".into());
+        assert!(secrets.contains_key("psk"));
+        assert!(secrets.contains_key("secret2"));
+        assert_eq!(
+            inserted_keys,
+            ["psk".to_string(), "secret2".to_string()]
+                .into_iter()
+                .collect()
+        )
+    }
+
+    #[test]
     /// See also for more information:
     /// https://codeberg.org/lilly/nm-file-secret-agent/issues/1#issuecomment-2939232
     fn encode_wireguard_secret_with_preshared_key() {
