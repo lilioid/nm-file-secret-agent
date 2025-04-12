@@ -14,7 +14,7 @@ steps:
       - . <(nix --extra-experimental-features "nix-command flakes" print-dev-env .)
       - pre-commit run --show-diff-on-failure --all-files
 
-  - name: cargo-build
+  - name: cargo-test
     depends_on: []
     when:
       - event: push
@@ -28,3 +28,4 @@ steps:
     commands:
       - . <(nix --extra-experimental-features "nix-command flakes" print-dev-env .)
       - cargo build
+      - cargo test
