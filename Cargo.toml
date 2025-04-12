@@ -1,7 +1,7 @@
 [package]
 name = "nm-file-secret-agent"
 description = "NetworkManager secret agent that responds with the content of preconfigured files"
-version = "1.0.1"
+version = "1.1.0"
 edition = "2021"
 authors = [ "Lilly Sell <li@lly.sh>" ]
 homepage = "https://codeberg.org/lilly/nm-file-secret-agent"

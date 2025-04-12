@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.1.0
+
+### New Features
+
+- Add support for serving WireGuard preshared-keys.
+  Network-Manager handles WireGuard configurations in a special way that is not compatible with the way this agent responded to GetSecret() requests.
+  Many thanks to Christoph Heiss <christoph@c8h4.io> (@c8h4) for discovering this bug, debugging it and implementing the final feature.
+  See the updated README.md for details on how to use it.
+
+- Handle restart of NetworkManager and reconnect to new instance automatically.
+
+### Misc
+
+- update dependencies to newest versions
+- improve internal code structure, logging and error handling
+- improve development experience through better flake configuration and other configuration files
+
+
 ## v1.0.1
 
 ### Fixes
