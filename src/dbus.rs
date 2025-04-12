@@ -3,16 +3,17 @@
 //! This involves connecting the agent to D-Bus, registering it with Network-Manager and handling
 //! dispatching requests received via D-Bus to internal functions.
 
-use anyhow::Context;
-use dbus::{arg::PropMap, blocking::Connection, MethodErr, Path};
-use dbus_crossroads::{Context as DbusContext, Crossroads};
-use std::{collections::HashMap, ops::Deref, time::Duration};
-
-use crate::generated::dbus_bus_manager::OrgFreedesktopDBus;
+use crate::generated::dbus_bus_manager::{OrgFreedesktopDBus, OrgFreedesktopDBusNameOwnerChanged};
 use crate::{
     config::AgentConfig, generated::agent_manager::OrgFreedesktopNetworkManagerAgentManager,
     mapping,
 };
+use anyhow::Context;
+use dbus::{arg::PropMap, blocking::Connection, Message, MethodErr, Path};
+use dbus_crossroads::{Context as DbusContext, Crossroads};
+use std::collections::HashSet;
+use std::sync::{Arc, RwLock};
+use std::{collections::HashMap, ops::Deref, time::Duration};
 
 /// Indication of agent capabilities
 ///
@@ -53,20 +54,22 @@ pub enum GetSecretsFlags {
 pub type NestedSettingsMap = HashMap<String, PropMap>;
 
 /// The struct which corresponds to the D-Bus object on which methods are called
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 struct ServerObj {
-    known_nm_names: Vec<String>,
-    mapping: AgentConfig,
+    known_nm_names: Arc<RwLock<HashSet<String>>>,
+    agent_config: AgentConfig,
 }
 
-pub fn run(mapping: AgentConfig) -> anyhow::Result<()> {
+pub fn run(agent_config: AgentConfig) -> anyhow::Result<()> {
     let mut cross = Crossroads::new();
+    let server_obj = ServerObj {
+        known_nm_names: Default::default(),
+        agent_config,
+    };
 
     tracing::debug!("Connecting to system bus");
     let conn = Connection::new_system().context("Could not connect to the system D-Bus daemon")?;
     tracing::debug!("Connected to bus as {}", conn.unique_name());
-
-    let known_nm_names = get_nm_names(&conn)?;
 
     let iface_token = cross.register("org.freedesktop.NetworkManager.SecretAgent", |b| {
         // GetSecrets()
@@ -84,8 +87,8 @@ pub fn run(mapping: AgentConfig) -> anyhow::Result<()> {
                   obj: &mut ServerObj,
                   (connection, _path, setting_name, hints, flags): (NestedSettingsMap, Path, String, Vec<String>, u32)| {
                 tracing::debug!("got getSecrets() call");
-                verify_access(dbus, &obj.known_nm_names)?;
-                match mapping::get_secret(&mut obj.mapping, (&connection, &setting_name, &hints, flags)) {
+                verify_access(obj, dbus)?;
+                match mapping::get_secret(&mut obj.agent_config, (&connection, &setting_name, &hints, flags)) {
                     Ok(secrets) => Ok((secrets,)),
                     Err(e) => {
                         tracing::error!(error = %e, "Could not execute getSecrets()");
@@ -135,15 +138,17 @@ pub fn run(mapping: AgentConfig) -> anyhow::Result<()> {
         );
     });
 
+    {
+        let mut known_nm_names = server_obj.known_nm_names.write().unwrap();
+        refresh_nm_names(&mut known_nm_names, &conn)?;
+    }
     register_agent(&conn)?;
+    register_signals(&server_obj, &conn)?;
 
     cross.insert(
         "/org/freedesktop/NetworkManager/SecretAgent",
         &[iface_token],
-        ServerObj {
-            known_nm_names,
-            mapping,
-        },
+        server_obj,
     );
 
     tracing::info!("Registered with NetworkManager; now serving D-Bus API");
@@ -166,8 +171,8 @@ fn register_agent(conn: &Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Query the given bus for names that Network-Manager uses on it
-fn get_nm_names(conn: &Connection) -> anyhow::Result<Vec<String>> {
+/// Query the given bus for names that Network-Manager uses on it and update our internal list
+fn refresh_nm_names(known_nm_names: &mut HashSet<String>, conn: &Connection) -> anyhow::Result<()> {
     tracing::debug!(
         "Querying DBus bus manager for all names that NetworkManager operates on the bus"
     );
@@ -181,12 +186,48 @@ fn get_nm_names(conn: &Connection) -> anyhow::Result<Vec<String>> {
         .get_name_owner(&name)
         .context("Could not query owner of name org.freedesktop.NetworkManager")?;
 
-    Ok(vec![name_owner, name])
+    *known_nm_names = HashSet::from([name_owner, name]);
+    Ok(())
+}
+
+/// Register a signal handler on D-Bus so that we know when Network-Manager changes its name (i.e. it gets restarted)
+fn register_signals(server_obj: &ServerObj, conn: &Connection) -> anyhow::Result<()> {
+    tracing::debug!("Registering self to receive signals on D-Bus name changes so that we know when Network-Manager restarts");
+
+    let proxy = conn.with_proxy(
+        "org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        Duration::from_secs(5),
+    );
+
+    // on DBusNameOwnerChanged
+    let known_nm_names = server_obj.known_nm_names.clone();
+    proxy
+        .match_signal(move |data: OrgFreedesktopDBusNameOwnerChanged, conn: &Connection, _: &Message| {
+            if data.arg0 == "org.freedesktop.NetworkManager" {
+                tracing::debug!("Network-Manager changed its name on the bus from {:?} to {:?}", data.arg1, data.arg2);
+                let mut known_nm_names = known_nm_names.write().unwrap();
+                if !data.arg1.is_empty() {
+                    tracing::debug!("Removing {} as known Network-Manager name", data.arg1);
+                    known_nm_names.remove(&data.arg1);
+                }
+                if !data.arg2.is_empty() {
+                    tracing::debug!("Adding {} as known Network-Manager name and re-registering self as secret agent", data.arg2);
+                    known_nm_names.insert(data.arg2);
+                    register_agent(conn).expect("Could not register self as secret agent with new Network-Manager");
+                }
+            }
+            true
+        })
+        .context("Could not register signal handler on D-Bus")?;
+
+    Ok(())
 }
 
 /// Verify that NetworkManager was the one who called
-fn verify_access(ctx: &mut DbusContext, known_nm_names: &[String]) -> Result<(), MethodErr> {
-    tracing::debug!("Verifying that it was NetworkManager that called us");
+fn verify_access(server: &ServerObj, ctx: &mut DbusContext) -> Result<(), MethodErr> {
+    tracing::trace!("Verifying that it was NetworkManager that called us");
+    let known_nm_names = server.known_nm_names.read().unwrap();
     let sender = ctx.message().sender();
     match sender {
         None => {
