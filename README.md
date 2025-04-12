@@ -5,13 +5,14 @@ This allows protected values to be stored outside of the `/etc/NetworkManager/sy
 
 ## Use-Case
 
-This program was designed to allow configuration of NetworkManager connections with NixOs that rely on secrets.
-The underlying problem is that, while NixOs provides options for statically configuring connection profiles (see [`networking.networkmanager.ensureProfiles.profiles` options](https://search.nixos.org/options?channel=unstable&type=packages&query=networking.networkmanager.ensureProfiles.profiles)), those settings are exposed in the nix store as world-readable.
+This program was designed to allow configuration of NetworkManager connections with NixOS that rely on secrets.
+The underlying problem is that, while NixOS provides options for statically configuring connection profiles (see [`networking.networkmanager.ensureProfiles.profiles` options](https://search.nixos.org/options?channel=unstable&type=packages&query=networking.networkmanager.ensureProfiles.profiles)), those settings are exposed in the nix store as world-readable.
 An example for such a secret is the private-key of a wireguard connection.
 NetworkManager, however, provides a mechanism for storing secrets inside an agent instead of the static configuration.
 Using such an agent, secrets can be provided at runtime by an external program.
+This program is such an agent.
 
-So in summary, my setup provides a connection secret (e.g. a WireGuard private-key) at `/run/secrets/wg_privkey`, the NetworkManager connection profile is configured to read the private-key from secret agents, and the here implemented program bridges the two by providing the files content at runtime.
+For example, my setup provides a WireGuard private-key at `/run/secrets/wg_privkey`, the NetworkManager connection profile is configured to read the private-key from secret agents, and this agent bridges the two by providing the file's content at runtime.
 
 ## CLI Usage
 
@@ -36,7 +37,7 @@ Options:
 ```
 
 
-## Configuration Reference
+## Configuration File Reference
 
 The configuration file must be in TOML format.
 It describes a list of entries such as the listing below.
@@ -44,7 +45,7 @@ It describes a list of entries such as the listing below.
 In general, each entry consists of multiple `match_` keys, determining which requests for secrets this agent responds to.
 Each match is optional and can be omitted but if multiple are specified, all of them mus match in order for an entry to be considered for a request.
 The `key` and `file` then determine *how* the request is answered.
-`key` configures the key in the setting section for which this entry describes a value while `file` should be the path to a file from which the secret is read.
+`key` configures the key in the setting section for which an entry describes a value while `file` should be the path to a file from which the secret is read.
 
 ```toml
 [[entry]]
@@ -75,18 +76,17 @@ After *nm-file-secret-agent* is started, it will only respond to secret requests
 
 If such a matching request is encountered, it is answered by providing the `wireguard.private-key` setting with a value taken from the file `/run/secrets/wg_privkey`.
 
-#### WireGuard `preshared-key`
+### Note on WireGuard `preshared-key`
 
-Sometimes, NetworkManager internally stores connection information different than specified in the `.nmconnection` file.
-
-Given the following (compacted) NetworkManager WireGuard connection configuration:
+Due to the way Network-Manager internally stores WireGuard peer configurations, some special attention must be given to preshared-key configuration.
+Given the following (compacted) NetworkManager connection configuration:
 
 ```
 [wireguard-peer.<some-public-key>]
 preshared-key-flags=1
 ```
 
-Then, in the configuration file, this must be specified as:
+Then, in this agents configuration file, this must be specified as:
 
 ```toml
 [[entry]]
