@@ -12,8 +12,10 @@ use dbus::{
 };
 use dbus_crossroads::{Context as DbusContext, Crossroads};
 
-use crate::dbus_bus_manager::OrgFreedesktopDBus;
-use crate::{agent_manager::OrgFreedesktopNetworkManagerAgentManager, mapping::MappingConfig};
+use crate::generated::dbus_bus_manager::OrgFreedesktopDBus;
+use crate::{
+    generated::agent_manager::OrgFreedesktopNetworkManagerAgentManager, mapping::MappingConfig,
+};
 
 /// Indication of agent capabilities
 ///

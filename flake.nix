@@ -36,10 +36,7 @@
       LD_LIBRARY_PATH = with pkgs; lib.makeLibraryPath [ dbus ];
       PKG_CONFIG_PATH = with pkgs; lib.makeSearchPathOutput "dev" "lib/pkgconfig" [ dbus ];
       packages = with pkgs; [
-        cargo
-        clippy
-        rustfmt
-        rust-analyzer
+        rustup
         pkg-config
         pre-commit
       ];

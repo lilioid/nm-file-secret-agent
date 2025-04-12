@@ -1,3 +1,4 @@
+//! NetworkManager secret agent that responds with the content of preconfigured files
 use std::path::PathBuf;
 
 use anyhow::Context;
@@ -5,11 +6,9 @@ use clap::{ArgAction, Parser};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::prelude::*;
 
-#[allow(unused, clippy::all)]
-mod agent_manager;
-#[allow(unused, clippy::all)]
-mod dbus_bus_manager;
 mod dbus_server;
+#[allow(unused, clippy::all)]
+mod generated;
 mod mapping;
 
 /// Small NetworkManager secret agent that responds with the content of preconfigured files
