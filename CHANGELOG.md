@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.2.0
+
+### New Features
+
+- Add optional trimming of whitespace from secrets
+  This adds a new configuration option called `trim` which, when set, trims all leading and trailing whitespace from secrets.
+  This can be useful because some editors automatically write an extra newline at the end of each file during editing which is often not desired when that files content is intended as a password or other secret.
+
+### Bug Fixes
+
+- Fix incorrect interface matching for empty names
+  Previously, the implementation would always consider a "match_iface" instrcution
+  to be matching if NetworkManager did not yet know a connections interface name.
+  To restore the old behavior, remove the "match_iface" instruction from the configuration
+  file. That way, all interface names (including empty ones).
+
+
 ## v1.1.0
 
 ### New Features
