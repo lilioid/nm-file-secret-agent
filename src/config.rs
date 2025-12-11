@@ -80,13 +80,11 @@ impl AgentConfig {
                     return false;
                 }
 
-                if let Some(iface_name) = iface_name {
-                    if entry
-                        .match_iface
+                if let Some(match_iface) = entry.match_iface.as_ref() {
+                    if iface_name
                         .as_ref()
-                        .is_some_and(|val| val != iface_name)
-                    {
-                        return false;
+                        .is_none_or(|val| val != match_iface) {
+                        return false
                     }
                 }
 
