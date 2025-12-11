@@ -114,6 +114,8 @@ pub struct MappingEntry {
     pub match_setting: Option<String>,
     pub key: String,
     pub file: String,
+    #[serde(default)]
+    pub trim: bool,
 }
 
 impl MappingEntry {
@@ -130,6 +132,12 @@ impl MappingEntry {
             .with_context(|| format!("Could not read content of file at {}", &self.file))?;
 
         tracing::trace!("Successfully read secret from file {}", &self.file);
-        Ok(secret_value)
+        match self.trim {
+            true => Ok(secret_value.trim().to_string()),
+            false => Ok(secret_value),
+        }
+    }
+}
+
     }
 }

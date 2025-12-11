@@ -58,6 +58,7 @@ match_iface = "<interface name of the network manager connection>"
 match_setting = "<name of the setting section for which secrets are requested>"
 key = "<key in the setting section for which entry provides a value>"
 file = "<file from which the secret value is read>"
+trim = <whether leading and trailing whitespace should be stripped from the files content before being passed to NetworkManager>
 ```
 
 ### Example
