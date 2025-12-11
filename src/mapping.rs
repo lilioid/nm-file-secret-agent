@@ -233,7 +233,7 @@ mod tests {
             },
         ]);
 
-        assert_eq!(secrets.signature(), "a{sv}".into());
+        assert_eq!(secrets.signature(), "a{sv}");
         assert!(secrets.contains_key("psk"));
         assert!(secrets.contains_key("secret2"));
         assert_eq!(
@@ -261,7 +261,7 @@ mod tests {
 
         assert!(secrets.contains_key("private-key"));
         assert!(secrets.contains_key("peers"));
-        assert_eq!(secrets.signature(), "a{sv}".into());
+        assert_eq!(secrets.signature(), "a{sv}");
 
         assert!(inserted_keys.contains("private-key"));
         assert!(inserted_keys.contains("peers.PUB_KEY_BAR.preshared-key"));
