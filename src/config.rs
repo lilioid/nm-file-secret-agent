@@ -139,5 +139,107 @@ impl MappingEntry {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    fn make_config() -> (NamedTempFile, NamedTempFile) {
+        let mut secret_file = NamedTempFile::with_suffix(".txt").expect("Could not create tempfile for storing a secret");
+        let mut config_file = NamedTempFile::with_suffix(".toml").expect("Could not create tempfile");
+
+        secret_file.write_all("foobar123\n".as_bytes()).expect("Could not write test secret to tempfile");
+        config_file.write_all(format!(r#"
+                [[entry]]
+                match_id = "10"
+                match_uuid = "11"
+                match_type = "12"
+                match_iface = "13"
+                match_setting = "14"
+                key = "foo"
+                file = "{0}"
+
+                [[entry]]
+                match_id = "20"
+                match_uuid = "21"
+                match_type = "22"
+                match_iface = "23"
+                match_setting = "24"
+                key = "foo"
+                file = "{0}"
+                trim = true
+            "#, secret_file.path().display()).as_bytes()).expect("Could not write test config to tempfile");
+
+        (secret_file, config_file)
+    }
+    
+    #[test]
+    fn test_config_parsing() {
+        let ( _secret_file, config_file ) = make_config();
+        let cfg = AgentConfig::from_file(config_file.path());
+        assert!(cfg.is_ok());
+    }
+
+    #[test]
+    fn test_config_validation() {
+        let ( _secret_file, config_file ) = make_config();
+        let cfg = AgentConfig::from_file(config_file.path()).unwrap();
+        assert!(cfg.validate().is_ok())
+    }
+    
+    /// if all properties of an entry match, it should be returned
+    #[test]
+    fn test_full_entry_matching() {
+        let ( secret_file, config_file ) = make_config();
+        let cfg = AgentConfig::from_file(config_file.path()).unwrap();
+        let entry = cfg.find_matching_secrets("10", "11", "12", Some("13"), "14");
+        assert_eq!(entry, vec![MappingEntry {
+            match_id: Some("10".to_string()),
+            match_uuid: Some("11".to_string()),
+            match_type: Some("12".to_string()),
+            match_iface: Some("13".to_string()),
+            match_setting: Some("14".to_string()),
+            key: "foo".to_string(),
+            file: secret_file.path().display().to_string(),
+            trim: false,
+        }])
+    }
+
+    /// if an entry does not match with all its properties, it should not be returned
+    #[test]
+    fn test_partial_entry_matching() {
+        let ( _secret_file, config_file ) = make_config();
+        let cfg = AgentConfig::from_file(config_file.path()).unwrap();
+        let entry = cfg.find_matching_secrets("10", "11", "12", Some("13"), "00");
+        assert_eq!(entry, vec![])
+    }
+
+    /// if network-manager does not know an interface name yet but a user requested that interface names should be matched,
+    /// the entry should not be returned
+    #[test]
+    fn test_missing_iface_name_entry_matching() {
+        let ( _secret_file, config_file ) = make_config();
+        let cfg = AgentConfig::from_file(config_file.path()).unwrap();
+        let entry = cfg.find_matching_secrets("10", "11", "12", None, "14");
+        assert_eq!(entry, vec![])
+    }
+
+    #[test]
+    fn test_get_value_no_trim() {
+        let ( _secret_file, config_file ) = make_config();
+        let cfg = AgentConfig::from_file(config_file.path()).unwrap();
+        let entry = &cfg.find_matching_secrets("10", "11", "12", Some("13"), "14")[0];
+        let value = entry.read().unwrap();
+        assert_eq!(value, "foobar123\n");
+    }
+    
+    #[test]
+    fn test_get_value_with_trim() {
+        let ( _secret_file, config_file ) = make_config();
+        let cfg = AgentConfig::from_file(config_file.path()).unwrap();
+        let entry = &cfg.find_matching_secrets("20", "21", "22", Some("23"), "24")[0];
+        let value = entry.read().unwrap();
+        assert_eq!(value, "foobar123");
     }
 }
